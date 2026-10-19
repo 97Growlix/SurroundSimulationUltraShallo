@@ -1,0 +1,49 @@
+scores: [0.00000000e+00 0.00000000e+00 6.08877969e-03 8.00000000e+00
+ 0.00000000e+00]
+score: 8.006088779685745
+params: [('InnerThick', np.float64(1.6539815290438233)), ('MidThick', np.float64(2.5048190439164726)), ('OuterThick', np.float64(1.8985926894763672)), ('OuterLaunchAngle', np.float64(93.67926910564688)), ('InnerLaunchAngle', np.float64(94.18163954278386)), ('ApexOffset', np.float64(24.415649805537946)), ('ApexDepth', np.float64(19.377352922875353)), ('MidSplineWeight', np.float64(4.281351641146255)), ('InnerSplineWeight', np.float64(14.609818226993903)), ('OuterSplineWeight', np.float64(11.670555504885039))]
+scores: [0.         0.         0.00957486 8.         0.        ]
+score: 8.00957485906444
+params: [('InnerThick', np.float64(2.0323924367786206)), ('MidThick', np.float64(2.507011814970083)), ('OuterThick', np.float64(2.053460755740112)), ('OuterLaunchAngle', np.float64(97.00933721839395)), ('InnerLaunchAngle', np.float64(93.83045071287297)), ('ApexOffset', np.float64(15.91954487599921)), ('ApexDepth', np.float64(31.72719001947943)), ('MidSplineWeight', np.float64(9.886081067134283)), ('InnerSplineWeight', np.float64(24.547107426094627)), ('OuterSplineWeight', np.float64(14.983811485386966))]
+scores: [1.07478199e+03 7.58173880e+06 1.16035637e+00]
+score: 7582814.741460759
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+06 1.16035637e+00]
+score: 7582814.741460759
+params: [('InnerThick', np.float64(2.00000001)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+06 1.16035637e+00]
+score: 7582814.741460759
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.00000001)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+06 1.16035637e+00]
+score: 7582814.741460759
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.00000001)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+06 1.16035637e+00]
+score: 7582814.741460759
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.00000001)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+06 1.16035637e+00]
+score: 7582814.741460759
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.00000001)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.00000001)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.00000001)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.00000001)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.00000001)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.00000001)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.00000001)), ('ApexDepth', np.float64(17.0)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]
+scores: [1.07478199e+03 7.58173880e+05 6.13360418e+00]
+score: 759254.7955099668
+params: [('InnerThick', np.float64(2.0)), ('MidThick', np.float64(2.0)), ('OuterThick', np.float64(2.0)), ('OuterLaunchAngle', np.float64(94.0)), ('InnerLaunchAngle', np.float64(94.0)), ('ApexOffset', np.float64(17.0)), ('ApexDepth', np.float64(17.00000001)), ('MidSplineWeight', np.float64(6.0)), ('InnerSplineWeight', np.float64(15.0)), ('OuterSplineWeight', np.float64(15.0))]

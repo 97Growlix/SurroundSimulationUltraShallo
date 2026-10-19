@@ -1,0 +1,666 @@
+import numpy as np
+import meshio
+import felupe as fe
+import gmsh
+import pyvista as pv
+import matplotlib.pyplot as plt
+from felupe.constitution.tensortrax.models.hyperelastic import mooney_rivlin
+from SurroundClasses import *
+from multiprocessing import Pool
+from pypardiso import spsolve
+from datetime import datetime
+import os
+import time
+import cadquery as cq
+
+
+def safe_unlink(path, retries=10, delay=0.5):
+    for _ in range(retries):
+        try:
+            os.unlink(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    raise
+
+def AnalyzeItBothWays(NOPs):
+    
+    args = [(NOPs, 1),(NOPs,-1)] #represents forward and backward sweep
+
+    with Pool(processes=2) as pool:
+        OneWayResults = pool.starmap(AnalyzeItOneWay,args)    
+    
+    KmsOut, DispOut = OneWayResults[0]
+
+    KmsIn, DispIn = OneWayResults[1]
+    
+    KmsOut = KmsOut[1:] #remove the first element bc it gets repeated
+    DispOut = DispOut[1:] 
+
+    #add both sides of stroke together
+    KmsTot = np.concatenate([KmsIn[::-1], KmsOut])
+    DispTot = np.concatenate([DispIn[::-1], DispOut])
+
+    return KmsTot, DispTot
+
+def LocalRF(job, mask):  #finds the rf for masked nodes at the last step of the job
+        Final_step_forces = job.steps[-1].items[0].results.force
+        force_arr = Final_step_forces.toarray().flatten()
+        num_nodes = force_arr.size // 3
+        force_reshaped = force_arr.reshape((num_nodes, 3))
+
+        masked_rfs = force_reshaped[mask, 2]
+        rf = sum(masked_rfs)
+
+        return rf
+
+def CreateFeField(NOPs):
+
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Verbosity", 1)
+    
+    gmsh.open(NOPs.stepout_path)
+
+    #get min z val
+    min_z = float("inf")
+    for tag in gmsh.model.getEntities(3):
+        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(3, tag[1])
+        if zmin < min_z:
+            min_z = zmin
+
+    print("zmin", min_z)
+
+    Refinement_pt_a = [NOPs.ConeWidth/2 - NOPs.ConeCornerRadius, NOPs.ConeHeight/2- NOPs.ConeCornerRadius, NOPs.ConeOffset]
+    print("ref pt", Refinement_pt_a)
+    #Refinement_pt_b = [NOPs.ConeWidth, NOPs.ConeHeight - NOPs.ConeCornerRadius, NOPs.ConeOffset]
+
+    dist_field = gmsh.model.mesh.field.add("Distance")
+
+    pt_tag = gmsh.model.occ.addPoint(*Refinement_pt_a, 0)
+    gmsh.model.occ.synchronize()
+    gmsh.model.mesh.field.setNumbers(dist_field, "NodesList", [pt_tag])
+
+    th_field = gmsh.model.mesh.field.add("Threshold")
+    gmsh.model.mesh.field.setNumber(th_field, "InField", dist_field)
+    gmsh.model.mesh.field.setNumber(th_field, "SizeMin", NOPs.MeshFine)
+    gmsh.model.mesh.field.setNumber(th_field, "SizeMax", NOPs.MeshCoarse)
+    gmsh.model.mesh.field.setNumber(th_field, "DistMin", NOPs.ConeCornerRadius*0.9)
+    gmsh.model.mesh.field.setNumber(th_field, "DistMax", NOPs.ConeCornerRadius*1.2)
+
+    tip_field = gmsh.model.mesh.field.add("Box")
+    gmsh.model.mesh.field.setNumber(tip_field, "VIn", NOPs.MeshFine)
+    gmsh.model.mesh.field.setNumber(tip_field, "VOut", NOPs.MeshCoarse)
+    gmsh.model.mesh.field.setNumber(tip_field, "XMin", xmin-1)
+    gmsh.model.mesh.field.setNumber(tip_field, "XMax", xmax+1)
+    gmsh.model.mesh.field.setNumber(tip_field, "YMin", ymin-1)
+    gmsh.model.mesh.field.setNumber(tip_field, "YMax", ymax+1)
+    gmsh.model.mesh.field.setNumber(tip_field, "ZMin", zmin-1)
+    gmsh.model.mesh.field.setNumber(tip_field, "ZMax", min_z+15)
+    gmsh.model.mesh.field.setNumber(tip_field, "Thickness", 15)
+
+    #combine the two mesh mmodifier fields
+    min_field = gmsh.model.mesh.field.add("Min")
+    gmsh.model.mesh.field.setNumbers(min_field, "FieldsList", [th_field, tip_field])
+    # gmsh.option.setNumber("Mesh.CharacteristicLengthFromPoints", 0)
+    # gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 0)
+    # gmsh.option.setNumber("Mesh.CharacteristicLengthExtendFromBoundary", 0) 
+        
+    gmsh.model.mesh.field.setAsBackgroundMesh(min_field)
+    print(gmsh.__version__)
+    gmsh.model.mesh.generate(3)
+
+    print("MeshFine:", NOPs.MeshFine)
+    print("MeshCoarse:", NOPs.MeshCoarse)
+    print("ZMin box:", zmin-1, "ZMax box:", zmin+15)
+    print("Full Z range:", zmin, "to", zmax)
+    print("Refinement pt:", Refinement_pt_a)
+    print("tip_field id:", tip_field)
+    print("min_field id:", min_field)
+
+    for tag in gmsh.model.getEntities(3):
+        print(gmsh.model.getBoundingBox(3, tag[1]))
+
+    gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)  # version 2.2
+    gmsh.option.setNumber("Mesh.Binary", 0)            # ASCII, not binary
+
+    gmsh.write("surround.msh")
+
+    #gmsh.fltk.run()
+    #gmsh.finalize()
+
+    # Read the Gmsh mesh
+    msh_file = "surround.msh"
+    try:
+        msh = meshio.read(msh_file)
+    except Exception as e:
+        print("Mesh read failed:", e)
+        return 1e9
+
+    # Extract points
+    points = msh.points
+
+    # Extract tetrahedral cells
+    tetra_cells = None
+    for cell_block in msh.cells:
+        if cell_block.type == "tetra":
+            tetra_cells = cell_block.data
+            break
+
+    if tetra_cells is None:
+        raise ValueError("No tetrahedral mesh found in the file")
+
+    # Create the FElupe mesh
+    tetra_mesh = fe.Mesh(points, tetra_cells, cell_type = "tetra")
+
+    # Assign quadrature for tetrahedra
+    quad = fe.quadrature.Tetrahedron(order=2)
+    tetra_mesh.quadrature = quad
+    elem = fe.element.Tetra()
+    # Create a region over all tetra cells
+    region = fe.Region(tetra_mesh, elem, quadrature=quad)
+
+    # Create a field
+    u = fe.Field(region, dim=3)
+    field = fe.FieldContainer([u])
+
+    return field.copy(), tetra_mesh, tetra_cells, points
+
+def CreateBCs(NOPs, field, points):
+    #masking
+    #Inner Curved Surface
+    Arc_Center_X = NOPs.ConeWidth/2 - NOPs.ConeCornerRadius
+    Arc_Center_Y = NOPs.ConeHeight/2 - NOPs.ConeCornerRadius
+    Cone_Z_Height = NOPs.MountFlangeThickness #- 5 #add the -5 for analyzing the IA surround 
+    Enclosure_Z_Height = Cone_Z_Height - NOPs.ConeOffset 
+    Clamp_Z_Height = Enclosure_Z_Height + NOPs.MountFlangeThickness
+    tol = NOPs.Node_find_tol
+
+    x_mod = points[:,0] - Arc_Center_X
+    y_mod = points[:,1] - Arc_Center_Y
+    z = points[:,2]
+
+    r = np.sqrt(x_mod**2 + y_mod**2)
+
+    R_outer_for_inner = NOPs.ConeCornerRadius+tol
+    R_inner_for_outer = NOPs.ConeCornerRadius+NOPs.ConeEnclosureGap
+    
+
+    Cone_Corner_Mask = (np.abs(z - Cone_Z_Height) <= tol) &\
+        (r<=R_outer_for_inner) &\
+        (x_mod>=-tol) & (y_mod>=-tol)
+    
+    #InnerTop
+    Cone_Top_Edge_Mask = (np.abs(z - Cone_Z_Height) <= tol) &\
+        (x_mod <= tol) & (y_mod <= NOPs.ConeCornerRadius + tol)
+
+    #InnerRight
+    Cone_Right_Edge_Mask = (np.abs(z - Cone_Z_Height) <= tol) &\
+        (y_mod <= tol) &\
+        (x_mod <= NOPs.ConeCornerRadius + tol)
+
+    #Outer anchored surface
+
+    Enclosure_Mounting_Mask = ((np.abs(z-Enclosure_Z_Height) <= tol)) &\
+        (((r>=R_inner_for_outer) & (x_mod >= 0) & (y_mod >= 0)) |\
+        ((y_mod>=R_inner_for_outer) | (x_mod >= R_inner_for_outer)))
+
+    Enclosure_Clamp_Mask = ((np.abs(z-Clamp_Z_Height) <= tol)) &\
+        (((r>=(R_inner_for_outer-NOPs.ConeEnclosureGap/2)) & (x_mod >= 0) & (y_mod >= 0)) |\
+        ((y_mod>=(R_inner_for_outer-NOPs.ConeEnclosureGap/2)) | (x_mod >= (R_inner_for_outer-NOPs.ConeEnclosureGap/2))))
+
+
+    ###
+    #boundary cond
+    ###
+
+    # Symmetry plane at x=0, fix only x displacement
+    bc_symx = fe.Boundary(
+        field[0],
+        fx=0.0,             # select points where x ≈ 0
+        skip=(False, True, True)  # fix x, skip y and z
+    )
+
+    # Symmetry plane at y=0, fix only y displacement
+    bc_symy = fe.Boundary(
+        field[0],
+        fy=0.0,             # select points where y ≈ 0
+        skip=(True, False, True)  # fix y, skip x and z
+    )
+
+    # Fixed support at z=0, fix all components
+    bc_bottom = fe.Boundary(
+        field[0],
+        mask = Enclosure_Mounting_Mask,             # select points where enclosure mount is
+        skip = (False, False, False)
+    )
+    #Create BC for applying displacements later
+    move_z = fe.Boundary(
+        field[0],
+        mask = (Cone_Corner_Mask | Cone_Top_Edge_Mask | Cone_Right_Edge_Mask),            # selects all nodes from the earlier mask
+        skip=(True, True, False) # constrain only Z (doesn't actually matter I think)
+    )
+    bc_cone = fe.Boundary(
+        field[0],
+        mask = (Cone_Corner_Mask | Cone_Top_Edge_Mask | Cone_Right_Edge_Mask),            # selects all nodes from the earlier mask
+        skip=(False, False, True) # constrain only Z (doesn't actually matter I think)
+    )
+   
+
+    #group all the bcs together
+    bcs = dict()
+    bcs["symx"] = bc_symx
+    bcs["symy"] = bc_symy
+    bcs["ground"] = bc_bottom
+    bcs["move_z"] = move_z
+    bcs["bc_cone"] = bc_cone
+
+    masks = dict()
+    masks["InnerMask"] = Cone_Corner_Mask
+    masks["InnerTop"] = Cone_Top_Edge_Mask
+    masks["InnerRight"] = Cone_Right_Edge_Mask
+    masks["Outer"] = Enclosure_Mounting_Mask
+    masks["Clamp"] = Enclosure_Clamp_Mask
+
+
+    return bcs, masks
+
+#function for adding glyphs to show BCs
+def add_bc_nodes(plotter, nodes, color, grid, points):
+    nodes_cloud = pv.PolyData(points[nodes])
+    bbox = grid.bounds
+    radius = 0.003 * max(bbox[1]-bbox[0], bbox[3]-bbox[2], bbox[5]-bbox[4])
+    glyphs = nodes_cloud.glyph(scale=False, geom=pv.Sphere(radius=radius), orient = False)
+    plotter.add_mesh(glyphs, color=color)
+
+def ShowItOff(NOPs, params):
+    import os
+    import subprocess
+    import imageio
+
+    field, tetra_mesh, tetra_cells, points = CreateFeField(NOPs)
+
+    bcs, masks = CreateBCs(NOPs, field, points)
+
+    print("Number of points in mesh:", tetra_mesh.points.shape[0])
+
+    # PyVista requires each cell to start with the number of points in the cell (4 for tetra)
+    cells_pv = np.hstack([np.full((tetra_cells.shape[0], 1), 4), tetra_cells]).flatten()
+
+    #format the data for pyvista
+    grid = pv.UnstructuredGrid(cells_pv, np.full(tetra_cells.shape[0], 10), points)
+   
+    pv_plotter = pv.Plotter()
+    pv_plotter.add_mesh(grid, show_edges = True)
+
+    add_bc_nodes(pv_plotter, bcs["symx"].points, 'red', grid, points)
+    add_bc_nodes(pv_plotter, bcs["symy"].points, 'green', grid, points)
+    add_bc_nodes(pv_plotter, bcs["ground"].points, 'blue', grid, points)
+    add_bc_nodes(pv_plotter, bcs["move_z"].points, 'orange', grid, points)
+
+    ##unconnemt this to show boundary conds
+    pv_plotter.camera_position = [(-125.0,-125.0,-25),(50.0,75.0,7.0),(0.0,0.0,1.0)]
+    
+    #pv_plotter.show()
+
+    ###
+    #material data
+    ###
+
+    material = fe.Hyperelastic(mooney_rivlin, C10 = NOPs.MaterialCoefficients[0], C01 = NOPs.MaterialCoefficients[1])
+
+    # Define your solid body
+    solid_out = fe.SolidBody(material, field)
+    
+    #Make separate bcs for each one
+    bc_clamp = fe.Boundary(
+        field[0],
+        mask = masks["Clamp"],             # select points where enclosure mount is
+        skip = (True, True, False)
+    )
+    bcs["clamp"] = bc_clamp
+   
+
+
+    bcs_out = bcs
+
+    # Define the displacement “ramp” (0 → some value) in linsteps
+
+    steps_out = fe.math.linsteps([0,NOPs.Xmax], num=round(NOPs.N_Steps/2))
+ 
+    # Define a step
+    step_out = fe.Step(
+        items=[solid_out],
+        ramp={bcs_out["move_z"]: steps_out},
+        boundaries=bcs_out  # includes your fixed BCs + the “move_z” boundary
+    )
+
+   
+
+    # Precompute PyVista cells
+    cells_pv = np.hstack([np.full((tetra_cells.shape[0], 1), 4), tetra_cells]).flatten()
+    cell_types = np.full(tetra_cells.shape[0], 10)  # 10 = VTK_TETRA
+
+    original_pts = tetra_mesh.points.copy()
+
+    deformed_meshes = []
+
+    #Callback funtion to grab the deformed meshes at each step
+    def cbout(stepnum, substepnum, substep, **kwargs):
+        # Extract displacement field as NumPy array
+        disp_values = substep.x[0].values  # convert Field → ndarray
+        pts_def = original_pts + disp_values
+        
+        # Create a PyVista UnstructuredGrid for this timestep
+        mesh_pv = pv.UnstructuredGrid(cells_pv, cell_types, pts_def)
+        deformed_meshes.append(mesh_pv)
+
+    def cbin(stepnum, substepnum, substep, **kwargs):
+        # Extract displacement field as NumPy array
+        disp_values = substep.x[0].values  # convert Field → ndarray
+        pts_def = original_pts + disp_values
+        
+        # Create a PyVista UnstructuredGrid for this timestep
+        mesh_pv = pv.UnstructuredGrid(cells_pv, cell_types, pts_def)
+        deformed_meshes.insert(0,mesh_pv)
+
+
+    ### Create the CharacteristicCurve job
+    
+    job_out = fe.CharacteristicCurve(steps=[step_out], boundary=bcs_out["move_z"], callback = cbout)
+
+    # Evaluate the characteristic curve
+    job_out.evaluate()
+    
+    #Now do the other way, but recompute the starting points first
+    field, tetra_mesh, tetra_cells, points = CreateFeField(NOPs)
+
+    bcs, masks= CreateBCs(NOPs, field, points)
+    solid_in = fe.SolidBody(material, field)
+    bcs_in = bcs
+    steps_in = fe.math.linsteps([0,-NOPs.Xmax], num=round(NOPs.N_Steps/2))
+     # Define a step
+    step_in = fe.Step(
+        items=[solid_in],
+        ramp={bcs_in["move_z"]: steps_in},
+        boundaries=bcs_in  # includes your fixed BCs + the “move_z” boundary
+    )
+    job_in = fe.CharacteristicCurve(steps=[step_in], boundary=bcs_in["move_z"], callback = cbin)
+    job_in.evaluate()
+    
+
+    ### For animation
+    TimeStamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    gif_path2 = f"SurroundGifs/solution_{TimeStamp}.gif"
+    gif_path = "surround_mesh_animation.gif"
+
+    # Create plotter window (visible)
+    pl = pv.Plotter(window_size=(900, 700))
+    pl.camera_position = [(NOPs.ConeWidth/2,-200.0, 7.0),(NOPs.ConeWidth/2,0, 7.0),(0.0,0.0,1.0)]
+    pl.add_mesh(deformed_meshes[0], show_edges=True)
+    pl.add_text("Mesh displacement animation", font_size=10)
+    cpos = pl.camera_position
+    pl.show(auto_close=False, interactive=False)
+
+
+    #loop through the meshes collected to create frames
+    frames = []
+    for t in range(len(deformed_meshes)):
+        # Update the mesh points of the same PyVista object
+        pl.mesh.points[:] = deformed_meshes[t].points  # or replace with new mesh
+        pl.render()
+        frames.append(pl.screenshot(return_img=True))
+
+    pl.close()
+    imageio.mimsave(gif_path, frames + frames[::-1], fps=round(NOPs.N_Steps/2), loop = 0)
+    imageio.mimsave(gif_path2, frames + frames[::-1], fps=round(NOPs.N_Steps/2), loop = 0)
+    print("GIF saved:", gif_path)
+
+    #open the gif automatically
+    try:
+        os.startfile(gif_path) #windows
+    except AttributeError:
+        subprocess.call(["open", gif_path]) #mac or Linux
+        
+
+    # Extract data I want
+    #split rfs between straight and curved sections
+    CurveRf = LocalRF(job_out, masks["InnerMask"])
+    InnerTopRF = LocalRF(job_out, masks["InnerTop"])
+    InnerRightRF = LocalRF(job_out, masks["InnerRight"])
+
+    Angle_to_top_corner = np.arctan2(NOPs.ConeHeight/2+NOPs.ConeCornerRadius, NOPs.ConeWidth/2)  #abs angle to top starting part of arc
+    Angle_to_bottom_corner = np.arctan2(NOPs.ConeHeight/2, NOPs.ConeWidth/2+NOPs.ConeCornerRadius)#abs angle to bottom point of arc
+    
+    Angular_span_curve = np.degrees(Angle_to_top_corner-Angle_to_bottom_corner)
+    Rf_per_deg_curve = CurveRf/Angular_span_curve
+
+    Angular_span_straight = np.degrees(Angle_to_bottom_corner + (np.pi/2-Angle_to_top_corner))
+    Rf_per_deg_straight = (InnerTopRF + InnerRightRF)/Angular_span_straight
+
+    print('Reaction force in Newtons per degree (curve vs flat section)')
+    print(Rf_per_deg_curve)
+    print(Rf_per_deg_straight)
+
+    disp_out = np.array([d[2] for d in job_out.x])      # Z displacement
+    force_out = 4*np.array([f[2] for f in job_out.y])     # Z reaction force (total)
+    disp_in = np.array([d[2] for d in job_in.x])      # Z displacement
+    force_in = 4*np.array([f[2] for f in job_in.y])     # Z reaction force (total)
+    
+    disp_in = disp_in[1:]
+    force_in = force_in[1:]
+
+    force = np.concatenate([force_in[::-1], force_out])
+    disp = np.concatenate([disp_in[::-1], disp_out])
+    
+    # Compute stiffness
+    kms = np.gradient(force, disp)
+
+    #compute total Kms with spider
+    kmsSpider = [CalcKSpider(u) for u in disp]
+    kmsT = kms + kmsSpider
+    #print(f'kmsT {kmsT}')
+
+    SurroundScore, WeightedScores = ScoreKms(kms, disp, NOPs)
+
+    print(f'Score = {SurroundScore}')
+    print(f'weighted scores = {WeightedScores}')
+
+    with open(NOPs.CachingFile, 'a') as f:
+                f.write(f"scores: {WeightedScores}\n")
+                f.write(f"score: {SurroundScore}\n")
+                f.write(f"params: {params}\n")
+
+    ##plot the graphs of force and kms
+    fig, axs = plt.subplots(3, 1, figsize=(17, 8))
+
+    axs[0].plot(disp, force, '-')
+    axs[0].set_xlabel("Displacement [mm]")
+    axs[0].set_ylabel("Reaction Force [N]")
+    axs[0].set_title("Reaction Force")
+    axs[0].grid(True)
+
+    axs[1].plot(disp, kms, '-')
+    axs[1].set_xlabel("Displacement [mm]")
+    axs[1].set_ylabel("Stiffness [N/mm]")
+    axs[1].set_title("Kms")
+    axs[1].grid(True)
+    axs[1].set_ylim([0,max(kms)*1.3])
+
+    axs[2].plot(disp, kmsT, '-', label='Total Kms')
+    axs[2].set_xlabel("Displacement [mm]")
+    axs[2].set_ylabel("Total Stiffness (including spider)")
+    axs[2].set_title("Total Kms")
+    axs[2].grid(True)
+    axs[2].set_ylim([0, max(kmsT)*1.3])
+    axs[2].plot(disp, kmsSpider, '-', color='red', label='Spider Only')
+    axs[2].legend(loc='lower left')
+
+    #plt.tight_layout()
+
+    TimeStamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"Plots/plot_{TimeStamp}.png"
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+
+    plt.show()
+
+    return 0 
+
+def AnalyzeItOneWay(NOPs, Direction, fe_mesh_field = None):
+    #use this section for debugging parallelization
+    # import threading, multiprocessing, os, psutil
+
+    # p = psutil.Process(os.getpid())
+    # print(f"Process {os.getpid()} starting sweep {Direction}")
+    # print(f"Thread count (Python-level): {threading.active_count()}")
+    # print("Threads (OS-level):", p.num_threads())
+
+
+    ###
+    # Moony-Rivlin model params
+    ###
+    
+    C10 = NOPs.MaterialCoefficients[0]
+    C01 = NOPs.MaterialCoefficients[1]
+
+    if fe_mesh_field == None:
+        field, tetra_mesh, tetra_cells, points = CreateFeField(NOPs)
+    
+    else:
+        field = fe_mesh_field
+        tetra_mesh = field[0].region.mesh
+        points = tetra_mesh.points
+
+    bcs, masks = CreateBCs(NOPs, field, points)
+   
+    ###
+    #material data
+    ###
+
+    material = fe.Hyperelastic(mooney_rivlin, C10=C10, C01=C01)
+    
+
+    # Define your solid body
+
+    solid = fe.SolidBody(material, field)
+    
+    # Define the displacement “ramp” (0 → some value) in linsteps
+
+    steps = fe.math.linsteps([0,NOPs.Xmax*Direction], num=round(NOPs.N_Steps/2))
+    
+    if Direction == 1:
+        bc_clamp = fe.Boundary(
+            field[0],
+            mask = masks["Clamp"],             # select points where enclosure mount is
+            skip = (True, True, False)
+        )
+        bcs["clamp"] = bc_clamp
+        print('Clamping')
+
+    # Define a step
+    step = fe.Step(
+        items=[solid],
+        ramp={bcs["move_z"]: steps},
+        boundaries=bcs  # includes your fixed BCs + the “move_z” boundary
+    )
+    
+    ### Create the CharacteristicCurve job
+    job = fe.CharacteristicCurve(steps=[step], boundary=bcs["move_z"])
+    # Evaluate the characteristic curve
+
+    job.evaluate(solver = spsolve)#filename=xdmf_filename)
+
+    # Extract data useful for optimization
+    disp = np.array([d[2] for d in job.x])      # Z displacement
+    force = 4*np.array([f[2] for f in job.y])     # Z reaction force (total)
+
+    # Compute stiffness
+    kms = np.gradient(force, disp)
+
+    return kms, disp
+
+def CalcKSpider(X):
+    # K = 5 + abs(X)*10/40  This is obsolete now
+    K = 8.76 + 0.0188*X - 2.88E-4*X**2 - 2.94E-5*X**3 + 4.06E-6*X**4
+
+    return K
+
+def ScoreKms(Kms, Disp, NOPs):
+    Volume = CalcVolume(NOPs.stepout_path)
+    print("Volume=", Volume)
+    #Calculate KmsFlatness
+    KmsAvg = np.mean(Kms)
+    KmsDev = Kms - KmsAvg
+    KmsF = np.sum(KmsDev**2)/len(Kms)
+
+    
+    #Calculate Kms90Flatness
+    #Now more like kms50 flatness
+    n = len(Kms)
+    start = int(n*.23)
+    end = n-start
+    Kms90 = Kms[start:end]
+    Kms90Avg = np.mean(Kms90)
+    print(f'kms90avg {Kms90Avg}')
+    Kms90Dev = Kms90 - Kms90Avg
+    Kms90F = np.sum(Kms90Dev**2)/len(Kms90)
+
+    #print(f'Disp90, {Disp[start:end]}')
+
+    #Calculate symmetry about x=0
+    ZeroIndex = len(Kms90)//2
+
+    if len(Kms90) % 2 ==0:
+        LeftSide = Kms90[:ZeroIndex]
+    else:
+        LeftSide = Kms90[:(ZeroIndex+1)]
+    RightSide = Kms90[ZeroIndex:]
+    RightSideMirror = RightSide[::-1]
+    Asym = np.sum((LeftSide-RightSideMirror)**2)
+
+    
+
+    #Calculate shift (difference in avg stiffness from target stiffness)
+    Shift = (KmsAvg - NOPs.TargetStiffness)**2
+    
+    
+    if NOPs.IncludeSpider == True:
+        #Calculate total stiffness (spider + surround)
+        KmsSpider = [CalcKSpider(u) for u in Disp]
+        KmsT = Kms + KmsSpider
+        
+        #Calculate KmsT90
+        KmsT90 = KmsT[start:end]
+        KmsT90Avg = np.mean(KmsT90)
+        KmsT90Dev = KmsT90 - KmsT90Avg
+        KmsT90F = np.sum(KmsT90Dev**2)/len(KmsT90)
+
+        #Calculate KmsT Flatness
+        KmsTAvg = np.mean(KmsT)
+        KmsTDev = KmsT - KmsTAvg
+        KmsTF = np.sum(KmsTDev**2)/len(KmsT90)
+
+        Scores = np.array([KmsTF, KmsT90F, Volume, Shift, Asym], dtype = float)
+    else:
+        Scores = np.array([KmsF, Kms90F, Volume, Shift, Asym], dtype = float)
+
+    PureWeights = [w[1] for w in NOPs.OptimizationWeights]
+    PureWeights = np.array(PureWeights, dtype = float)
+    
+    WeightedScores = PureWeights*Scores
+    SurroundScore = np.sum(WeightedScores)
+
+    return SurroundScore, WeightedScores
+
+def CalcVolume(StepPath):
+    shape = cq.importers.importStep(str(StepPath))
+    volume = shape.val().Volume()
+
+    return volume
+
+def main():
+
+  
+    return 0 
+
+if __name__ == "__main__":
+    main()
